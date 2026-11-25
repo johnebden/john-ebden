@@ -124,8 +124,67 @@ function StillButton({ still, onOpen, className = 'project-still', style }) {
   )
 }
 
+const YOUTUBE_ORIGIN = 'https://www.youtube-nocookie.com'
+
+// YouTube shows its automatic captions to viewers who have captions switched on. John doesn't want
+// them over his films, so whenever a film starts or resumes playing, the captions are switched off.
+// This talks to the embedded player through its postMessage interface (needs enablejsapi=1).
+function useNoYouTubeCaptions(iframeRef, isYouTube) {
+  useEffect(() => {
+    const iframe = iframeRef.current
+    if (!isYouTube || !iframe) return
+
+    const send = (message) =>
+      iframe.contentWindow?.postMessage(JSON.stringify({ ...message, id: 1, channel: 'widget' }), YOUTUBE_ORIGIN)
+    const hideCaptions = () => {
+      send({ event: 'command', func: 'unloadModule', args: ['captions'] })
+      send({ event: 'command', func: 'setOption', args: ['captions', 'track', {}] })
+    }
+
+    // The player only reports its state once asked to, so keep asking until it answers.
+    let lastState = null
+    let listenTimer = null
+    const startListening = () => {
+      clearInterval(listenTimer)
+      let attempts = 0
+      listenTimer = setInterval(() => {
+        send({ event: 'listening' })
+        if (++attempts >= 40) clearInterval(listenTimer)
+      }, 250)
+    }
+
+    const handleMessage = (event) => {
+      if (event.source !== iframe.contentWindow) return
+      let data
+      try {
+        data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data
+      } catch {
+        return
+      }
+      clearInterval(listenTimer)
+      const state = data.event === 'onStateChange' ? data.info : data.info?.playerState
+      // 1 is playing, 3 is buffering: the points where YouTube loads captions.
+      if (state !== undefined && state !== lastState) {
+        lastState = state
+        if (state === 1 || state === 3) hideCaptions()
+      }
+    }
+
+    window.addEventListener('message', handleMessage)
+    iframe.addEventListener('load', startListening)
+    startListening()
+    return () => {
+      clearInterval(listenTimer)
+      window.removeEventListener('message', handleMessage)
+      iframe.removeEventListener('load', startListening)
+    }
+  }, [iframeRef, isYouTube])
+}
+
 function ProjectPage({ project }) {
   const [openStill, setOpenStill] = useState(null)
+  const videoRef = useRef(null)
+  useNoYouTubeCaptions(videoRef, Boolean(!project.vimeoId && project.youtubeId))
   const stepStill = useCallback(
     (step) =>
       setOpenStill((index) => (index + step + project.stills.length) % project.stills.length),
@@ -142,7 +201,7 @@ function ProjectPage({ project }) {
   const videoUrl = project.vimeoId
     ? `https://player.vimeo.com/video/${project.vimeoId}?dnt=1&title=0&byline=0&portrait=0`
     : project.youtubeId
-      ? `https://www.youtube-nocookie.com/embed/${project.youtubeId}?rel=0`
+      ? `${YOUTUBE_ORIGIN}/embed/${project.youtubeId}?rel=0&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`
       : project.bbcClipId && `https://www.bbc.co.uk/programmes/${project.bbcClipId}/player`
 
   // Without a video, the first still leads the page at full width.
@@ -165,6 +224,7 @@ function ProjectPage({ project }) {
         ) : (
           <div className="project-video">
             <iframe
+              ref={videoRef}
               src={videoUrl}
               title={project.title}
               allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
