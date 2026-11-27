@@ -374,7 +374,7 @@ function App() {
         </nav>
       </header>
 
-      <main id="top" className="page-content">
+      <main id="top" className={!currentProject && currentPage === 'home' ? 'page-content is-home' : 'page-content'}>
         {currentProject ? (
           <ProjectPage project={currentProject} />
         ) : currentPage === 'home' ? (

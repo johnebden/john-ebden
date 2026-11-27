@@ -536,6 +536,19 @@ html:has(.lightbox[open]) {
     width: calc(100% - 32px);
   }
 
+  /* The visible screen height (svh ignores the browser toolbars), so centring below lands mid-screen. */
+  .page-shell {
+    min-height: 100svh;
+  }
+
+  /* On phones the image is full width and much shorter than the screen, so centre it
+     vertically between the masthead and footer rather than leaving it at the top. */
+  .page-content.is-home {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
   .home-image {
     width: 100%;
   }
